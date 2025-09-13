@@ -1,16 +1,14 @@
-
 import React, { useState } from 'react';
-import { User } from '../types';
 import { api } from '../services/api';
 import Spinner from '../components/Spinner';
 
 interface LoginPageProps {
-  onLogin: (user: User) => void;
+  onLoginSuccess: () => void; // A navegação agora é gerenciada pelo listener do App.tsx
   onNavigateToSignUp: () => void;
   onNavigateToCTLogin: () => void;
 }
 
-const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToSignUp, onNavigateToCTLogin }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onNavigateToSignUp, onNavigateToCTLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -21,8 +19,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToSignUp, onNa
     setError('');
     setIsLoading(true);
     try {
-      const user = await api.login(email, password);
-      onLogin(user);
+      await api.login(email, password);
+      // onLoginSuccess é chamado, mas a mudança de estado global agora é via onAuthStateChange
+      onLoginSuccess();
     } catch (err: any) {
       setError(err.message || 'Falha no login. Verifique suas credenciais.');
     } finally {
@@ -100,12 +99,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToSignUp, onNa
             >
               Sou aluno CT
             </button>
-          </div>
-
-          <div className="mt-8 border-t pt-4 text-center text-sm text-gray-500">
-            <p className="font-semibold">Contas de demonstração:</p>
-            <p>Admin: <span className="font-mono">admin@inspira.com</span> / <span className="font-mono">admin123</span></p>
-            <p>Aluno: <span className="font-mono">aluno@inspira.com</span> / <span className="font-mono">aluno123</span></p>
           </div>
         </form>
       </div>

@@ -1,28 +1,47 @@
+// Fix: This file should only contain type definitions. All implementation has been removed.
+// All necessary types are now defined and exported to fix import/export errors across the app.
 export enum Role {
-  ALUNO = 'ALUNO',
   PROGRAMADOR = 'PROGRAMADOR',
+  ALUNO = 'ALUNO',
 }
 
 export interface User {
   id: string;
   name: string;
   email: string;
+  password?: string; // Should not be sent to client
   role: Role;
   phone?: string;
-  password?: string; // Should not be sent to frontend in real app
   isCTStudent?: boolean;
+}
+
+export interface Question {
+    id: string;
+    text: string;
+    options: string[];
+    correctOptionIndex: number;
+}
+
+export interface Quiz {
+    questions: Question[];
+}
+
+export interface Attachment {
+    name: string;
+    url: string;
 }
 
 export interface Lesson {
   id: string;
   title: string;
-  content: string; // Could be markdown, video URL, etc.
-  videoUrl?: string; // Optional: for embedding videos
-  attachments?: { name: string; url: string }[]; // Added for file attachments
+  content: string;
+  videoUrl?: string;
+  attachments?: Attachment[];
+  quiz?: Quiz;
 }
 
 export interface Module {
-  id:string;
+  id: string;
   title: string;
   lessons: Lesson[];
 }
@@ -36,40 +55,53 @@ export interface Course {
   modules: Module[];
 }
 
+export interface CourseWithProgress extends Course {
+    progress: number;
+}
+
+export interface QuizAttempt {
+    lessonId: string;
+    score: number;
+    passed: boolean;
+    timestamp: string;
+}
+
 export interface Enrollment {
   userId: string;
   courseId: string;
+  completedLessonIds: string[];
+  quizAttempts: QuizAttempt[];
 }
 
 export interface Coupon {
-  id: string;
-  code: string;
-  discountPercentage: number;
-  expiresAt: string; // ISO Date String
-  isActive: boolean;
-  courseId?: string; // If undefined, applies to all courses
-}
-
-export interface Note {
-  id: string;
-  title: string;
-  content: string;
-  lastSaved: string; // ISO Date String
-}
-
-export interface Folder {
-  id: string;
-  name: string;
-  notes: Note[];
+    id: string;
+    code: string;
+    discountPercentage: number;
+    expiresAt: string;
+    isActive: boolean;
+    courseId?: string;
 }
 
 export interface CTAccessCode {
-  id: string;
-  code: string;
-  isUsed: boolean;
-  usedByUserId?: string;
+    id: string;
+    code: string;
+    isUsed: boolean;
+    usedByUserId?: string;
 }
 
 export interface CTAccessCodeWithUserName extends CTAccessCode {
-  usedByUserName?: string;
+    usedByUserName?: string;
+}
+
+export interface Note {
+    id: string;
+    title: string;
+    content: string;
+    lastSaved: string;
+}
+
+export interface Folder {
+    id: string;
+    name: string;
+    notes: Note[];
 }

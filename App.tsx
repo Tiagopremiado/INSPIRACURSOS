@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Course, Role } from './types';
 import { api } from './services/api';
+import { supabase } from './services/supabaseClient';
 import Header from './components/Header';
 import LoginPage from './pages/LoginPage';
 import SignUpPage from './pages/SignUpPage';
@@ -11,8 +11,9 @@ import StudentDashboard from './pages/StudentDashboard';
 import CheckoutPage from './pages/CheckoutPage';
 import CoursePlayerPage from './pages/CoursePlayerPage';
 import CTStudentLoginPage from './pages/CTStudentLoginPage';
+import CourseCompletionPage from './pages/CourseCompletionPage';
 
-type View = 'HOME' | 'LOGIN' | 'SIGNUP' | 'ADMIN_DASHBOARD' | 'STUDENT_DASHBOARD' | 'CHECKOUT' | 'COURSE_PLAYER' | 'CT_STUDENT_LOGIN';
+type View = 'HOME' | 'LOGIN' | 'SIGNUP' | 'ADMIN_DASHBOARD' | 'STUDENT_DASHBOARD' | 'CHECKOUT' | 'COURSE_PLAYER' | 'CT_STUDENT_LOGIN' | 'COURSE_COMPLETION';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -21,49 +22,67 @@ const App: React.FC = () => {
   const [view, setView] = useState<View>('HOME');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [enrolledCourseIds, setEnrolledCourseIds] = useState<Set<string>>(new Set());
+  const [courseCompletionData, setCourseCompletionData] = useState<{ course: Course; performance: number } | null>(null);
 
-  const fetchCourses = useCallback(async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    const checkSession = async () => {
+      setIsLoading(true);
+      const user = await api.getSession();
+      await handleLogin(user);
+      setIsLoading(false);
+    };
+
+    checkSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        const user = session?.user ? await api.getSession() : null;
+        await handleLogin(user);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const fetchCoursesAndEnrollments = useCallback(async (user: User | null) => {
     try {
       const allCourses = await api.getCourses();
       setCourses(allCourses);
+      
+      if (user) {
+        const studentCourses = await api.getStudentCourses(user.id);
+        setEnrolledCourseIds(new Set(studentCourses.map(c => c.id)));
+      } else {
+        setEnrolledCourseIds(new Set());
+      }
+
     } catch (error) {
-      console.error("Failed to fetch courses:", error);
+      console.error("Failed to fetch initial data:", error);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchCourses();
-  }, [fetchCourses]);
-
-  const handleLogin = async (user: User) => {
+  const handleLogin = async (user: User | null) => {
     setCurrentUser(user);
-    if (user.role === Role.PROGRAMADOR) {
-      setView('ADMIN_DASHBOARD');
+    await fetchCoursesAndEnrollments(user);
+
+    if (user) {
+      setView(user.role === Role.PROGRAMADOR ? 'ADMIN_DASHBOARD' : 'STUDENT_DASHBOARD');
     } else {
-      try {
-        // Fetch student's courses to know what they already own
-        const studentCourses = await api.getStudentCourses(user.id);
-        setEnrolledCourseIds(new Set(studentCourses.map(c => c.id)));
-      } catch (error) {
-        console.error("Failed to fetch student courses on login:", error);
-        setEnrolledCourseIds(new Set()); // Reset on error
-      }
-      setView('STUDENT_DASHBOARD');
+      setView('HOME');
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await api.logout();
     setCurrentUser(null);
     setSelectedCourse(null);
-    setEnrolledCourseIds(new Set()); // Clear enrolled courses on logout
+    setEnrolledCourseIds(new Set());
     setView('HOME');
   };
 
   const handleSelectCourseToBuy = (course: Course) => {
-    // Redirect to login if not authenticated
     if (!currentUser) {
         alert('Por favor, faça login ou cadastre-se para comprar um curso.');
         setView('LOGIN');
@@ -82,6 +101,11 @@ const App: React.FC = () => {
     setView(newView);
   }
 
+  const handleCourseComplete = (course: Course, performance: number) => {
+    setCourseCompletionData({ course, performance });
+    setView('COURSE_COMPLETION');
+  };
+
   const renderContent = () => {
     if (isLoading) {
       return <div className="text-center p-10">Carregando...</div>;
@@ -89,13 +113,13 @@ const App: React.FC = () => {
 
     switch (view) {
       case 'LOGIN':
-        return <LoginPage onLogin={handleLogin} onNavigateToSignUp={() => navigateTo('SIGNUP')} onNavigateToCTLogin={() => navigateTo('CT_STUDENT_LOGIN')} />;
+        return <LoginPage onLoginSuccess={() => {}} onNavigateToSignUp={() => navigateTo('SIGNUP')} onNavigateToCTLogin={() => navigateTo('CT_STUDENT_LOGIN')} />;
       case 'CT_STUDENT_LOGIN':
-        return <CTStudentLoginPage onLoginSuccess={handleLogin} onNavigateToMainLogin={() => navigateTo('LOGIN')} />;
+        return <CTStudentLoginPage onLoginSuccess={() => {}} onNavigateToMainLogin={() => navigateTo('LOGIN')} />;
       case 'SIGNUP':
         return <SignUpPage onSignUpSuccess={() => { alert('Cadastro realizado com sucesso! Faça o login para continuar.'); navigateTo('LOGIN'); }} onNavigateToLogin={() => navigateTo('LOGIN')} />;
       case 'ADMIN_DASHBOARD':
-        return currentUser && <AdminDashboard user={currentUser} onCoursesUpdate={fetchCourses} />;
+        return currentUser && <AdminDashboard user={currentUser} onCoursesUpdate={() => fetchCoursesAndEnrollments(currentUser)} />;
       case 'STUDENT_DASHBOARD':
         return currentUser && <StudentDashboard user={currentUser} onSelectCourse={handleSelectCourseToView} onBrowseCourses={() => navigateTo('HOME')} />;
       case 'CHECKOUT':
@@ -107,10 +131,11 @@ const App: React.FC = () => {
             />
         );
       case 'COURSE_PLAYER':
-        return currentUser && selectedCourse && <CoursePlayerPage user={currentUser} course={selectedCourse} onBack={() => setView('STUDENT_DASHBOARD')} />;
+        return currentUser && selectedCourse && <CoursePlayerPage user={currentUser} course={selectedCourse} onBack={() => setView('STUDENT_DASHBOARD')} onCourseComplete={handleCourseComplete} />;
+      case 'COURSE_COMPLETION':
+        return currentUser && courseCompletionData && <CourseCompletionPage user={currentUser} course={courseCompletionData.course} performance={courseCompletionData.performance} onBack={() => setView('STUDENT_DASHBOARD')} />;
       case 'HOME':
       default:
-        // Filter out courses the user is already enrolled in
         const coursesForSale = courses.filter(course => !enrolledCourseIds.has(course.id));
         return <HomePage courses={coursesForSale} onSelectCourse={handleSelectCourseToBuy} />;
     }

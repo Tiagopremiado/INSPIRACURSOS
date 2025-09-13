@@ -1,9 +1,107 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Course, Module, Lesson } from '../../types';
+import { Course, Module, Lesson, Quiz, Question } from '../../types';
 import { api } from '../../services/api';
 import Modal from '../../components/Modal';
-import { PlusIcon, EditIcon, TrashIcon, ChevronDownIcon, PaperclipIcon } from '../../components/icons';
+import { PlusIcon, EditIcon, TrashIcon, ChevronDownIcon, PaperclipIcon, CheckCircleIcon } from '../../components/icons';
 import Spinner from '../../components/Spinner';
+
+// --- Quiz Editor ---
+const QuizEditor: React.FC<{
+    quiz: Quiz | undefined;
+    onQuizChange: (quiz: Quiz) => void;
+}> = ({ quiz, onQuizChange }) => {
+    const [questions, setQuestions] = useState<Question[]>(quiz?.questions || []);
+
+    const handleQuestionTextChange = (qIndex: number, text: string) => {
+        const updated = [...questions];
+        updated[qIndex].text = text;
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    };
+
+    const handleOptionChange = (qIndex: number, oIndex: number, text: string) => {
+        const updated = [...questions];
+        updated[qIndex].options[oIndex] = text;
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    };
+    
+    const handleCorrectOptionChange = (qIndex: number, oIndex: number) => {
+        const updated = [...questions];
+        updated[qIndex].correctOptionIndex = oIndex;
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    }
+
+    const addQuestion = () => {
+        const newQuestion: Question = {
+            id: `q-${Date.now()}`,
+            text: '',
+            options: ['', ''],
+            correctOptionIndex: 0
+        };
+        const updated = [...questions, newQuestion];
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    };
+    
+    const removeQuestion = (qIndex: number) => {
+        const updated = questions.filter((_, index) => index !== qIndex);
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    };
+
+    const addOption = (qIndex: number) => {
+        const updated = [...questions];
+        updated[qIndex].options.push('');
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    };
+    
+    const removeOption = (qIndex: number, oIndex: number) => {
+        const updated = [...questions];
+        if (updated[qIndex].options.length <= 2) {
+            alert('A questão deve ter no mínimo 2 opções.');
+            return;
+        }
+        updated[qIndex].options = updated[qIndex].options.filter((_, index) => index !== oIndex);
+        // Adjust correct option index if it was the removed one or after it
+        if(updated[qIndex].correctOptionIndex === oIndex){
+            updated[qIndex].correctOptionIndex = 0;
+        } else if (updated[qIndex].correctOptionIndex > oIndex) {
+            updated[qIndex].correctOptionIndex -= 1;
+        }
+        setQuestions(updated);
+        onQuizChange({ questions: updated });
+    }
+
+    return (
+        <div className="space-y-4 pt-3 mt-3 border-t">
+            <h4 className="font-bold text-lg text-gray-800">Editor de Prova</h4>
+            {questions.map((q, qIndex) => (
+                <div key={qIndex} className="p-3 bg-gray-100 border rounded-lg space-y-2">
+                    <div className="flex justify-between items-center">
+                        <label className="text-sm font-semibold text-gray-700">Questão {qIndex + 1}</label>
+                        <button type="button" onClick={() => removeQuestion(qIndex)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-4 w-4"/></button>
+                    </div>
+                    <textarea value={q.text} onChange={e => handleQuestionTextChange(qIndex, e.target.value)} placeholder="Digite o enunciado da questão" rows={2} className="w-full text-sm p-2 border rounded-md"/>
+                    <div className="space-y-2 pl-4">
+                        {q.options.map((opt, oIndex) => (
+                            <div key={oIndex} className="flex items-center gap-2">
+                                <input type="radio" name={`correct-opt-${qIndex}`} checked={q.correctOptionIndex === oIndex} onChange={() => handleCorrectOptionChange(qIndex, oIndex)} title="Marcar como correta"/>
+                                <input type="text" value={opt} onChange={e => handleOptionChange(qIndex, oIndex, e.target.value)} placeholder={`Opção ${oIndex+1}`} className="flex-grow w-full text-sm p-1.5 border rounded-md"/>
+                                <button type="button" onClick={() => removeOption(qIndex, oIndex)} className="text-gray-500 hover:text-red-600"><TrashIcon className="h-4 w-4"/></button>
+                            </div>
+                        ))}
+                    </div>
+                     <button type="button" onClick={() => addOption(qIndex)} className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300">Adicionar Opção</button>
+                </div>
+            ))}
+            <button type="button" onClick={addQuestion} className="w-full text-sm bg-blue-100 text-blue-800 p-2 rounded hover:bg-blue-200 font-semibold">Adicionar Questão</button>
+        </div>
+    )
+}
+
 
 // --- Lesson Form ---
 const LessonForm: React.FC<{
@@ -17,6 +115,9 @@ const LessonForm: React.FC<{
     const [content, setContent] = useState(lesson?.content || '');
     const [videoUrl, setVideoUrl] = useState(lesson?.videoUrl || '');
     const [attachments, setAttachments] = useState(lesson?.attachments || []);
+    const [quiz, setQuiz] = useState<Quiz | undefined>(lesson?.quiz);
+    const [isEditingQuiz, setIsEditingQuiz] = useState(false);
+    
     const [newAttachmentName, setNewAttachmentName] = useState('');
     const [newAttachmentUrl, setNewAttachmentUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
@@ -36,7 +137,7 @@ const LessonForm: React.FC<{
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
-        const lessonData = { title, content, videoUrl, attachments };
+        const lessonData = { title, content, videoUrl, attachments, quiz };
         if (lesson) {
             await api.updateLesson(courseId, moduleId, lesson.id, lessonData);
         } else {
@@ -46,6 +147,16 @@ const LessonForm: React.FC<{
         onSave();
     };
     
+    const handleQuizChange = (newQuiz: Quiz) => {
+        // Remove quiz if it has no questions
+        if(newQuiz.questions.length === 0) {
+            setQuiz(undefined);
+            setIsEditingQuiz(false);
+        } else {
+            setQuiz(newQuiz);
+        }
+    }
+
     const inputStyle = "mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500";
     const attachmentInputStyle = "mt-1 block w-full px-2 py-1.5 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm text-sm placeholder-gray-500";
 
@@ -89,6 +200,13 @@ const LessonForm: React.FC<{
                     </div>
                     <button type="button" onClick={handleAddAttachment} className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-md hover:bg-gray-300 text-sm font-semibold">Adicionar</button>
                  </div>
+            </div>
+
+            <div>
+                <button type="button" onClick={() => setIsEditingQuiz(!isEditingQuiz)} className="w-full mt-2 bg-yellow-100 text-yellow-800 text-sm px-3 py-2 rounded-md hover:bg-yellow-200 flex items-center justify-center space-x-2">
+                    <span>{isEditingQuiz ? 'Fechar Editor de Prova' : 'Gerenciar Prova'} ({quiz?.questions.length || 0} questões)</span>
+                </button>
+                {isEditingQuiz && <QuizEditor quiz={quiz} onQuizChange={handleQuizChange} />}
             </div>
 
             <div className="pt-2 flex justify-end space-x-3">
@@ -222,7 +340,12 @@ const CourseContentManager: React.FC<{
                                <div className="p-3 space-y-3">
                                    {module.lessons.map(lesson => (
                                        <div key={lesson.id} className="p-3 bg-white rounded-md border flex justify-between items-center">
-                                           <span>{lesson.title}</span>
+                                            <div className="flex items-center">
+                                                <span>{lesson.title}</span>
+                                                {lesson.quiz && (
+                                                    <span className="ml-2 px-2 py-0.5 text-xs font-semibold text-yellow-800 bg-yellow-100 rounded-full">Prova</span>
+                                                )}
+                                            </div>
                                            <div className="flex items-center space-x-2">
                                                <button onClick={() => setEditingLessonInfo({moduleId: module.id, lesson})} className="p-1 text-gray-500 hover:text-blue-600"><EditIcon className="h-4 w-4"/></button>
                                                <button onClick={() => handleDeleteLesson(module.id, lesson.id)} className="p-1 text-gray-500 hover:text-red-600"><TrashIcon className="h-4 w-4"/></button>
