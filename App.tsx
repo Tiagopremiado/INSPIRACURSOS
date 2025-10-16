@@ -1,165 +1,152 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Course, Role } from './types';
 import { api } from './services/api';
-import { supabase } from './services/supabaseClient';
 import Header from './components/Header';
+import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import SignUpPage from './pages/SignUpPage';
-import HomePage from './pages/HomePage';
-import AdminDashboard from './pages/AdminDashboard';
 import StudentDashboard from './pages/StudentDashboard';
-import CheckoutPage from './pages/CheckoutPage';
+import AdminDashboard from './pages/AdminDashboard';
 import CoursePlayerPage from './pages/CoursePlayerPage';
-import CTStudentLoginPage from './pages/CTStudentLoginPage';
+import CheckoutPage from './pages/CheckoutPage';
 import CourseCompletionPage from './pages/CourseCompletionPage';
+import CTStudentLoginPage from './pages/CTStudentLoginPage';
 
-type View = 'HOME' | 'LOGIN' | 'SIGNUP' | 'ADMIN_DASHBOARD' | 'STUDENT_DASHBOARD' | 'CHECKOUT' | 'COURSE_PLAYER' | 'CT_STUDENT_LOGIN' | 'COURSE_COMPLETION';
+type Page = 'home' | 'login' | 'signup' | 'ct_student_login' | 'dashboard' | 'course_player' | 'checkout' | 'completion';
 
 const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [view, setView] = useState<View>('HOME');
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [enrolledCourseIds, setEnrolledCourseIds] = useState<Set<string>>(new Set());
-  const [courseCompletionData, setCourseCompletionData] = useState<{ course: Course; performance: number } | null>(null);
+    // State variables
+    const [user, setUser] = useState<User | null>(null);
+    const [courses, setCourses] = useState<Course[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState<Page>('home');
+    const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+    const [completedCourseInfo, setCompletedCourseInfo] = useState<{ course: Course, performance: number } | null>(null);
 
-  useEffect(() => {
-    const checkSession = async () => {
-      setIsLoading(true);
-      const user = await api.getSession();
-      await handleLogin(user);
-      setIsLoading(false);
+    // Fetch courses
+    const fetchCourses = useCallback(async () => {
+        try {
+            const coursesData = await api.getCourses();
+            setCourses(coursesData);
+        } catch (error) {
+            console.error("Failed to fetch courses:", error);
+        }
+    }, []);
+
+    // Session management
+    useEffect(() => {
+        const checkSession = async () => {
+            const sessionUser = await api.getSession();
+            setUser(sessionUser);
+            if (sessionUser) {
+                setCurrentPage('dashboard');
+            }
+            setIsLoading(false);
+        };
+        checkSession();
+        fetchCourses();
+
+        const { data: { subscription } } = api.onAuthStateChange((user: User | null) => {
+            // The user object is already the rich User profile from our `users` table
+            setUser(user);
+        });
+
+        return () => {
+            subscription.unsubscribe();
+        };
+    }, [fetchCourses]);
+
+    // Handlers
+    const handleLogout = async () => {
+        await api.logout();
+        setUser(null);
+        setCurrentPage('home');
+        setSelectedCourse(null);
+    };
+    
+    const handleLoginSuccess = (loggedInUser: User) => {
+        setUser(loggedInUser);
+        setCurrentPage('dashboard');
     };
 
-    checkSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        const user = session?.user ? await api.getSession() : null;
-        await handleLogin(user);
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
+    const handleSelectCourseForPurchase = (course: Course) => {
+        if (!user) {
+            alert('Você precisa fazer login para se matricular em um curso.');
+            setCurrentPage('login');
+        } else {
+            setSelectedCourse(course);
+            setCurrentPage('checkout');
+        }
     };
-  }, []);
 
-  const fetchCoursesAndEnrollments = useCallback(async (user: User | null) => {
-    try {
-      const allCourses = await api.getCourses();
-      setCourses(allCourses);
-      
-      if (user) {
-        const studentCourses = await api.getStudentCourses(user.id);
-        setEnrolledCourseIds(new Set(studentCourses.map(c => c.id)));
-      } else {
-        setEnrolledCourseIds(new Set());
-      }
-
-    } catch (error) {
-      console.error("Failed to fetch initial data:", error);
-    } finally {
-        setIsLoading(false);
-    }
-  }, []);
-
-  const handleLogin = async (user: User | null) => {
-    setCurrentUser(user);
-    await fetchCoursesAndEnrollments(user);
-
-    if (user) {
-      setView(user.role === Role.PROGRAMADOR ? 'ADMIN_DASHBOARD' : 'STUDENT_DASHBOARD');
-    } else {
-      setView('HOME');
-    }
-  };
-
-  const handleLogout = async () => {
-    await api.logout();
-    setCurrentUser(null);
-    setSelectedCourse(null);
-    setEnrolledCourseIds(new Set());
-    setView('HOME');
-  };
-
-  const handleSelectCourseToBuy = (course: Course) => {
-    if (!currentUser) {
-        alert('Por favor, faça login ou cadastre-se para comprar um curso.');
-        setView('LOGIN');
-        return;
-    }
-    setSelectedCourse(course);
-    setView('CHECKOUT');
-  };
-  
-  const handleSelectCourseToView = (course: Course) => {
-    setSelectedCourse(course);
-    setView('COURSE_PLAYER');
-  };
-
-  const navigateTo = (newView: View) => {
-    setView(newView);
-  }
-
-  const handleCourseComplete = (course: Course, performance: number) => {
-    setCourseCompletionData({ course, performance });
-    setView('COURSE_COMPLETION');
-  };
-
-  const renderContent = () => {
-    if (isLoading) {
-      return <div className="text-center p-10">Carregando...</div>;
+    const handleSelectCourseForViewing = (course: Course) => {
+        setSelectedCourse(course);
+        setCurrentPage('course_player');
     }
 
-    switch (view) {
-      case 'LOGIN':
-        return <LoginPage onLoginSuccess={() => {}} onNavigateToSignUp={() => navigateTo('SIGNUP')} onNavigateToCTLogin={() => navigateTo('CT_STUDENT_LOGIN')} />;
-      case 'CT_STUDENT_LOGIN':
-        return <CTStudentLoginPage onLoginSuccess={() => {}} onNavigateToMainLogin={() => navigateTo('LOGIN')} />;
-      case 'SIGNUP':
-        return <SignUpPage onSignUpSuccess={() => { alert('Cadastro realizado com sucesso! Faça o login para continuar.'); navigateTo('LOGIN'); }} onNavigateToLogin={() => navigateTo('LOGIN')} />;
-      case 'ADMIN_DASHBOARD':
-        return currentUser && <AdminDashboard user={currentUser} onCoursesUpdate={() => fetchCoursesAndEnrollments(currentUser)} />;
-      case 'STUDENT_DASHBOARD':
-        return currentUser && <StudentDashboard user={currentUser} onSelectCourse={handleSelectCourseToView} onBrowseCourses={() => navigateTo('HOME')} />;
-      case 'CHECKOUT':
-        return selectedCourse && currentUser && (
-            <CheckoutPage 
-                course={selectedCourse}
-                user={currentUser}
-                onBack={() => setView('HOME')} 
+    const handleCourseComplete = (course: Course, performance: number) => {
+        setCompletedCourseInfo({ course, performance });
+        setCurrentPage('completion');
+    };
+
+    const navigateTo = (page: Page) => {
+        // Reset transient state when navigating
+        if (page !== 'course_player') setSelectedCourse(null);
+        if (page !== 'completion') setCompletedCourseInfo(null);
+        setCurrentPage(page);
+    }
+    
+    // Render logic
+    const renderContent = () => {
+        if (isLoading) {
+            return <div className="text-center p-20">Carregando...</div>;
+        }
+
+        if (user && currentPage === 'dashboard') {
+            if (user.role === Role.PROGRAMADOR) {
+                return <AdminDashboard user={user} onCoursesUpdate={fetchCourses} />;
+            }
+            return <StudentDashboard user={user} onSelectCourse={handleSelectCourseForViewing} onBrowseCourses={() => navigateTo('home')} />;
+        }
+        
+        if (currentPage === 'course_player' && user && selectedCourse) {
+            return <CoursePlayerPage user={user} course={selectedCourse} onBack={() => navigateTo('dashboard')} onCourseComplete={handleCourseComplete} />;
+        }
+
+        if (currentPage === 'checkout' && user && selectedCourse) {
+            return <CheckoutPage user={user} course={selectedCourse} onBack={() => navigateTo('home')} />;
+        }
+
+        if (currentPage === 'completion' && user && completedCourseInfo) {
+            return <CourseCompletionPage user={user} course={completedCourseInfo.course} performance={completedCourseInfo.performance} onBack={() => navigateTo('dashboard')} />;
+        }
+
+        switch (currentPage) {
+            case 'login':
+                return <LoginPage onLoginSuccess={handleLoginSuccess} onNavigateToSignUp={() => navigateTo('signup')} />;
+            case 'signup':
+                return <SignUpPage onSignUpSuccess={() => { alert('Cadastro realizado com sucesso! Por favor, verifique seu e-mail para confirmar a conta e faça o login.'); navigateTo('login'); }} onNavigateToLogin={() => navigateTo('login')} />;
+            case 'ct_student_login':
+                 return <CTStudentLoginPage onRegisterSuccess={() => { alert('Cadastro de aluno CT realizado com sucesso! Faça seu login para continuar.'); navigateTo('login'); }} onBack={() => navigateTo('home')} />;
+            case 'home':
+            default:
+                return <HomePage courses={courses} onSelectCourse={handleSelectCourseForPurchase} />;
+        }
+    };
+
+    return (
+        <div className="bg-gray-100 min-h-screen font-sans">
+            <Header
+                user={user}
+                onLogout={handleLogout}
+                onNavigateToLogin={() => navigateTo('login')}
+                onNavigateHome={() => navigateTo(user ? 'dashboard' : 'home')}
             />
-        );
-      case 'COURSE_PLAYER':
-        return currentUser && selectedCourse && <CoursePlayerPage user={currentUser} course={selectedCourse} onBack={() => setView('STUDENT_DASHBOARD')} onCourseComplete={handleCourseComplete} />;
-      case 'COURSE_COMPLETION':
-        return currentUser && courseCompletionData && <CourseCompletionPage user={currentUser} course={courseCompletionData.course} performance={courseCompletionData.performance} onBack={() => setView('STUDENT_DASHBOARD')} />;
-      case 'HOME':
-      default:
-        const coursesForSale = courses.filter(course => !enrolledCourseIds.has(course.id));
-        return <HomePage courses={coursesForSale} onSelectCourse={handleSelectCourseToBuy} />;
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
-      <Header
-        user={currentUser}
-        onLogout={handleLogout}
-        onNavigateToLogin={() => navigateTo('LOGIN')}
-        onNavigateHome={() => {
-          if(currentUser) {
-            setView(currentUser.role === Role.PROGRAMADOR ? 'ADMIN_DASHBOARD' : 'STUDENT_DASHBOARD');
-          } else {
-            setView('HOME');
-          }
-        }}
-      />
-      <main className="container mx-auto px-4 py-8">
-        {renderContent()}
-      </main>
-    </div>
-  );
+            <main className="container mx-auto p-4 sm:p-6 lg:p-8">
+                {renderContent()}
+            </main>
+        </div>
+    );
 };
 
 export default App;

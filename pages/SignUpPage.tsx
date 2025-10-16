@@ -26,7 +26,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onSignUpSuccess, onNavigateToLo
         setError('');
         setIsLoading(true);
         try {
-            await api.createUser({ name, email, password, phone });
+            await api.signUpUser({ name, email, password, phone });
             onSignUpSuccess();
         } catch (err: any) {
             setError(err.message || 'Falha no cadastro. Tente novamente.');

@@ -21,8 +21,9 @@ const CourseCompletionPage: React.FC<CourseCompletionPageProps> = ({ user, cours
         Para solicitar a emissão do seu certificado oficial, basta entrar em contato com nossa equipe de suporte pelo WhatsApp. Estaremos prontos para te atender.
     `;
 
+    const whatsappNumber = process.env.SUPPORT_WHATSAPP_NUMBER || '5553991152051'; // Fallback number
     const whatsappMessage = encodeURIComponent(`Olá! Concluí o curso "${course.title}" e gostaria de solicitar meu certificado. Meu nome é ${user.name}.`);
-    const whatsappLink = `https://wa.me/5553991152051?text=${whatsappMessage}`;
+    const whatsappLink = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`;
 
     return (
         <div className="max-w-4xl mx-auto text-center py-10">
